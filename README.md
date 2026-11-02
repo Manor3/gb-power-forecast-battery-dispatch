@@ -1,5 +1,7 @@
 # GB power: battery dispatch and day-ahead demand forecasting
 
+[![tests](https://github.com/Manor3/gb-power-forecast-battery-dispatch/actions/workflows/tests.yml/badge.svg)](https://github.com/Manor3/gb-power-forecast-battery-dispatch/actions/workflows/tests.yml)
+
 Two tested pieces of a GB power-trading toolkit, built on public data:
 
 - **Battery dispatch (Session 1):** the most a 1 MW / 2 MWh battery could have earned on 2025 GB Market Index prices with perfect foresight, solved as an LP and a MIP in Pyomo with HiGHS.

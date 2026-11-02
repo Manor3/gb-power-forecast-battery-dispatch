@@ -1,0 +1,35 @@
+# tests.yml: run the offline test suite on every push and pull request.
+# Any failing test turns the run red, and the README badge with it.
+
+name: tests
+
+on: [push, pull_request]
+
+# The run's token can read the repo but not change it.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false          # if one OS fails, still finish the other
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15         # a hang fails here, not after the 6-hour default
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"   # quoted, so YAML reads text, not a number
+          cache: pip               # reuse downloads, keyed on requirements.txt
+
+      - name: Install the pinned requirements
+        run: python -m pip install -r requirements.txt
+
+      - name: Run the tests
+        run: python -m pytest -q
