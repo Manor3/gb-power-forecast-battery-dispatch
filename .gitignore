@@ -1,0 +1,31 @@
+# .gitignore: files git should never track.
+# A line ending in / means a whole folder.
+
+# Data cache: everything here can be re-fetched (delete a CSV to refetch it).
+# Saved sample responses for tests go in fixtures/, not here, so they get committed.
+data/
+
+# Python's compiled copies of your .py files, rebuilt on every run
+__pycache__/
+*.py[cod]
+
+# pytest's notes from the last run
+.pytest_cache/
+
+# Editor and notebook settings (Spyder projects, Jupyter autosaves)
+.spyproject/
+.ipynb_checkpoints/
+
+# Virtual environments, if you ever make one
+.venv/
+venv/
+
+# Secrets (API keys, passwords): never committed
+.env
+
+# Windows clutter
+Thumbs.db
+desktop.ini
+
+# Archive
+archive/

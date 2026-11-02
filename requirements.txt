@@ -1,0 +1,12 @@
+# Tested on Python 3.13.5
+# Session 1
+pyomo==6.10.1
+highspy==1.15.1
+# Session 2
+pandas==3.0.3
+numpy==2.4.6
+requests==2.34.2
+lightgbm==4.7.0
+holidays==0.107
+tzdata==2026.2
+pytest==9.1.1
