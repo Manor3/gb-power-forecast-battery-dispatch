@@ -1,5 +1,7 @@
 """The database enforces the protocol: append-only, one name per attempt, 2025 once."""
+import shutil
 import sqlite3
+import subprocess
 
 import pandas as pd
 import pytest
@@ -81,3 +83,41 @@ def test_read_scored_lines_up_models_and_outturn(con):
     assert t["actual"].tolist() == [100.0, 200.0]
     assert t["naive"].tolist() == [90.0, 190.0]
     assert t["gbm_v1"].iloc[0] == 95.0 and pd.isna(t["gbm_v1"].iloc[1])
+
+
+def test_protocol_names_what_changed(con):
+    locked = dict(CONFIG, code={"gbm.py": "a1"}, packages={"lightgbm": "4.7.0"})
+    store.save_run(con, "gbm_v1", 2024, locked, forecasts("gbm_v1", [1.0]))
+    with pytest.raises(ValueError, match=r"in code: gbm\.py\. .*frozen"):
+        store.check_protocol(con, "gbm_v1", 2025, dict(locked, code={"gbm.py": "b2"}), 2024, 2025)  # edited code
+    with pytest.raises(ValueError, match="in packages: lightgbm"):
+        store.check_protocol(con, "gbm_v1", 2025, dict(locked, packages={"lightgbm": "4.8.0"}), 2024, 2025)  # new library
+    store.check_protocol(con, "gbm_v1", 2025, locked, 2024, 2025)  # same code, same libraries: allowed
+
+
+def test_blob_id_is_gits_on_any_os(tmp_path):
+    """A Windows checkout writes CRLF, Linux writes LF: both give the ID git stores for "hello\\n"."""
+    (tmp_path / "lf.py").write_bytes(b"hello\n")
+    (tmp_path / "crlf.py").write_bytes(b"hello\r\n")
+    assert store.blob_id(tmp_path / "lf.py") == store.blob_id(tmp_path / "crlf.py") == "ce013625030ba8dba906f756967f9e9ca394464a"
+
+
+@pytest.mark.skipif(shutil.which("git") is None or not (store.REPO / ".git").exists(),
+                    reason="needs git on PATH and a git checkout: CI has both")
+def test_blob_ids_match_git_for_every_module():
+    files = sorted(p.name for p in store.REPO.glob("*.py"))
+    git = subprocess.run(["git", "hash-object", "--", *files], cwd=store.REPO, capture_output=True, text=True, check=True)
+    assert git.stdout.split() == [store.blob_id(store.REPO / f) for f in files]
+
+
+def test_fingerprint_follows_imports(tmp_path, monkeypatch):
+    (tmp_path / "root.py").write_text("import helper\nimport numpy\n")
+    (tmp_path / "helper.py").write_text("import json\nimport requests\nfrom pandas import Timestamp\n")
+    (tmp_path / "unrelated.py").write_text("import lightgbm\n")
+    monkeypatch.setattr(store, "REPO", tmp_path)
+    fp = store.fingerprint("root")
+    assert set(fp["code"]) == {"root.py", "helper.py"}  # imports are followed; unrelated.py is never reached
+    assert set(fp["packages"]) == {"numpy", "pandas"}   # json is stdlib, requests is UNLOCKED
+    before = fp["code"]["helper.py"]
+    (tmp_path / "helper.py").write_text("import json\nimport requests\nfrom pandas import Timestamp\nX = 1\n")
+    assert store.fingerprint("root")["code"]["helper.py"] != before  # an edit in an imported module shows

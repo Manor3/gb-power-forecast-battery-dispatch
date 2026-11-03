@@ -104,7 +104,7 @@ At **09:30 on D−1**, forecast GB national demand (INDO, in MW) for every settl
 
 - Forecasts are issued daily and the model is refitted monthly, on an expanding window from 2022.
 - **2024 is the validation year:** three versions were tried there. **2025 is the test year:** v1 was frozen and scored once.
-- The SQLite store refuses to score a version on 2025 unless that exact configuration ran on 2024, and it never overwrites stored forecasts. **It locks the configuration, not the source code,** so a code change between the two years would not be caught. Hashing the source into the configuration comes before the live runs start.
+- The SQLite store refuses to score a version on 2025 unless that exact configuration ran on 2024, and it never overwrites stored forecasts. **The configuration now includes the code:** the git blob ID of every module the forecaster runs, and the version of every library it imports that can move the numbers. **2024 and 2025 ran before that,** so a code change between the two years would not have been caught.
 
 ### Validation: three versions on 2024
 
@@ -149,7 +149,7 @@ python run_year.py          # Session 1: the 2025 year (the first run fetches pr
 python run_session2.py      # Session 2: set YEAR = 2024 first, then 2025 (see its docstring)
 ```
 
-- **Tested on Python 3.13.5** with the versions pinned in `requirements.txt`.
+- **Tested on every push** by GitHub Actions, on Ubuntu and Windows with Python 3.13 and the versions pinned in `requirements.txt`. Developed on 3.13.5.
 - **The data isn't in the repo.** Each script fetches what it needs on its first run and caches it in `data/`. Session 2's first run fetches four years of demand, forecasts and weather.
 - **Run Session 2 on 2024 first.** The store won't score 2025 until the same configuration has run on 2024.
 
@@ -177,7 +177,7 @@ python run_session2.py      # Session 2: set YEAR = 2024 first, then 2025 (see i
 
 - **Next, Session 3: what forecast skill is worth.** A demand forecast doesn't price anything by itself, so this needs a price model first. The battery then dispatches on forecast prices, settles at actual prices, and reports the share of perfect-foresight revenue it captured.
 - **Next, Session 4: a scheduled daily run.** It will fetch, forecast, store and grade yesterday, and fail loudly on a missing settlement period. Each forecast will be committed before its delivery day.
-- **The protocol lock covers the configuration, not the code** (see Protocol).
+- **The 2024 and 2025 runs predate the code lock** (see Protocol).
 - **v1's bias changed sign between years:** +118 MW on 2024 (too low), −170 MW on 2025 (too high).
 
 ## Data and licences

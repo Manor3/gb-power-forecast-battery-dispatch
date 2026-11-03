@@ -4,10 +4,16 @@ The database enforces the protocol, so it doesn't rest on good intentions:
 1. A forecast, once written, is never changed (append-only).
 2. Every GBM attempt has its own name, so the record of trials is complete.
 3. The test year is scored once, by a configuration already run on the validation year.
+   The configuration includes the forecaster's code and library versions (fingerprint).
 """
+import ast
+import hashlib
+import importlib.metadata
 import json
 import sqlite3
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pandas as pd
 
@@ -38,6 +44,8 @@ CREATE TABLE IF NOT EXISTS runs (
 """
 
 BENCHMARKS = ("naive", "neso")  # deterministic: rewriting them is skipped, not an error
+REPO = Path(__file__).resolve().parent
+UNLOCKED = {"requests"}  # third-party code that moves bytes, never the numbers: not version-locked
 
 
 def connect(path):
@@ -52,6 +60,60 @@ def _iso(ts):
 
 def config_json(config):
     return json.dumps(config, sort_keys=True, default=str)
+
+
+def blob_id(path):
+    """The file's git blob ID, reading CRLF as LF: the ID git stores, whichever OS checked it out."""
+    data = Path(path).read_bytes().replace(b"\r\n", b"\n")
+    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+
+
+def _imports(path):
+    """The top-level name of every module path imports, wherever in the file."""
+    for node in ast.walk(ast.parse(Path(path).read_bytes())):
+        if isinstance(node, ast.Import):
+            yield from (alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            yield node.module.split(".")[0]
+
+
+def fingerprint(*roots):
+    """What settings can't show: the code a forecaster runs and the libraries it runs on.
+
+    code: the git blob ID of each root module and of every repo module it imports, directly
+    or not. packages: the installed version of every third-party library those modules
+    import, except UNLOCKED. Pass the forecaster's modules as roots, never a run script:
+    the run script holds YEAR, which changes between the validation and the test run.
+    """
+    modules, third_party, todo = set(), set(), list(roots)
+    while todo:
+        name = todo.pop()
+        if name in modules:
+            continue
+        modules.add(name)
+        for imported in _imports(REPO / f"{name}.py"):
+            if (REPO / f"{imported}.py").exists():
+                todo.append(imported)
+            elif imported not in sys.stdlib_module_names:
+                third_party.add(imported)
+    return dict(
+        code={f"{m}.py": blob_id(REPO / f"{m}.py") for m in sorted(modules)},
+        packages={p: importlib.metadata.version(p) for p in sorted(third_party - UNLOCKED)},
+    )
+
+
+def config_diff(stored, config):
+    """Where a stored config (JSON) and a new one differ: top-level keys, and entries
+    inside dicts such as code, packages and params."""
+    old, new = json.loads(stored), json.loads(config_json(config))
+    diff = []
+    for key in sorted(old.keys() | new.keys()):
+        a, b = old.get(key), new.get(key)
+        if isinstance(a, dict) and isinstance(b, dict):
+            diff += [f"{key}: {k}" for k in sorted(a.keys() | b.keys()) if a.get(k) != b.get(k)]
+        elif a != b:
+            diff.append(key)
+    return diff
 
 
 def existing_run(con, model, year):
@@ -71,8 +133,11 @@ def check_protocol(con, model, year, config, dev_year, test_year):
     if year in runs:
         raise ValueError(f"{model} already ran on {year}, and stored forecasts are never overwritten.")
     if year == test_year:
-        if runs.get(dev_year) != config_json(config):
-            raise ValueError(f"{model} has no {dev_year} run with exactly this configuration. "
+        if dev_year not in runs:
+            raise ValueError(f"{model} has no {dev_year} run. {test_year} only scores settings frozen on {dev_year}.")
+        changed = config_diff(runs[dev_year], config)
+        if changed:
+            raise ValueError(f"{model} differs from its {dev_year} run in {', '.join(changed)}. "
                              f"{test_year} only scores settings frozen on {dev_year}.")
         taken = con.execute("SELECT model FROM runs WHERE year = ?", (test_year,)).fetchone()
         if taken:

@@ -164,13 +164,20 @@ def load_ndf(start, end, log):
 
 # --- the run ---
 
+# The protocol locks the code of these modules and of everything they import. Not this
+# script's: it holds YEAR, which changes between the validation and the test run by design.
+FORECASTER = ("backtest", "elexon", "weather")
+
+
 def config_for(version):
-    """Everything that defines the forecaster. 2025 only accepts a config already run on 2024."""
+    """Everything that defines the forecaster: settings, code and library versions.
+    2025 only accepts a config already run on 2024."""
     return dict(
         version=version, features=gbm.FEATURE_SETS[version], params=gbm.PARAMS,
         issue_time=gbtime.ISSUE_TIME.isoformat(), train_start=TRAIN_START.isoformat(), refit="monthly",
         sites=weather.SITES, weighting=weather.WEIGHTING, reanalysis=weather.REANALYSIS_MODEL,
         forecast_model=weather.FORECAST_MODEL, forecast_lead_days=weather.FORECAST_LEAD_DAYS,
+        **store.fingerprint(*FORECASTER),
     )
 
 
@@ -301,8 +308,10 @@ def main():
             print(f"{model} already ran on {YEAR}. Stored forecasts are never overwritten, so this run only "
                   f"re-scores them.\nTo try new settings, add them to gbm.FEATURE_SETS under a new name and "
                   f"set MODEL_VERSION to it.")
-            if stored != store.config_json(config_for(MODEL_VERSION)):
-                print(f"Note: your settings have changed since {model} ran. These scores are for the settings it ran with.")
+            changed = store.config_diff(stored, config_for(MODEL_VERSION))
+            if changed:
+                print(f"Note: your settings have changed since {model} ran ({', '.join(changed)}). "
+                      f"These scores are for the settings it ran with.")
             panel = backtest.build_panel(load_indo(HISTORY_START, days[-1], log), HISTORY_START, days[-1])
         score_year(con, model, panel, log)
     finally:

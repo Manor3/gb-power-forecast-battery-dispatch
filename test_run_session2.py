@@ -82,8 +82,8 @@ def test_whole_script_offline(offline, capsys):
     assert (data / "log_2024_gbm_v1.csv").read_text() == first_log  # the real run's log survives
 
     monkeypatch.setitem(gbm.PARAMS, "n_estimators", 99)
-    rs.main()  # edited settings under an old name: still only re-scores, and says so
-    assert "settings have changed" in capsys.readouterr().out
+    rs.main()  # edited settings under an old name: still only re-scores, and says what changed
+    assert "settings have changed since gbm_v1 ran (params: n_estimators)" in capsys.readouterr().out
 
     monkeypatch.setattr(rs, "MODEL_VERSION", "v9")
     with pytest.raises(ValueError, match="isn't defined"):
@@ -111,3 +111,12 @@ def test_the_test_year_refuses_settings_never_run_on_the_validation_year(offline
     with pytest.raises(ValueError, match="frozen"):
         rs.main()
     assert not (data / "results").exists()  # refused before any work
+
+
+def test_the_lock_covers_the_forecaster_not_the_run_script():
+    """This script holds YEAR, which changes between 2024 and 2025 by design: locking it would
+    block the very run the protocol allows. The modules that make the forecasts are locked."""
+    config = rs.config_for("v1")
+    assert "run_session2.py" not in config["code"]
+    assert set(config["code"]) == {"backtest.py", "elexon.py", "gbm.py", "gbtime.py", "naive.py", "pit.py", "weather.py"}
+    assert set(config["packages"]) == {"holidays", "lightgbm", "numpy", "pandas"}
